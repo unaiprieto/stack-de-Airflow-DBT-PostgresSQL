@@ -1,0 +1,12 @@
+stack_profile:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: db
+      user: stack_user
+      password: stack_pass
+      port: 5432
+      dbname: stack_db
+      schema: staging
+      threads: 4

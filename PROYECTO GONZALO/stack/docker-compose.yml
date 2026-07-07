@@ -1,0 +1,104 @@
+networks:
+  datanet:
+    driver: bridge
+
+volumes:
+  pg_data:
+
+services:
+
+  db:
+    image: postgres:16
+    container_name: stack_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stack_user
+      POSTGRES_PASSWORD: stack_pass
+      POSTGRES_DB: stack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - datanet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stack_user -d stack_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  etl:
+    build:
+      context: ./etl
+    container_name: stack_etl
+    restart: "no"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: stack_db
+      DB_USER: stack_user
+      DB_PASSWORD: stack_pass
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - datanet
+
+  adminer:
+    image: adminer:latest
+    container_name: stack_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - datanet
+
+  dbt:
+    build:
+      context: ./dbt_project
+    container_name: stack_dbt
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - datanet
+
+  airflow:
+    build:
+      context: ./airflow
+    container_name: stack_airflow
+    restart: unless-stopped
+    user: "0:0"
+    ports:
+      - "8082:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__WORKERS: "1"
+      AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT: "300"
+      AIRFLOW__WEBSERVER__WORKER_REFRESH_BATCH_SIZE: "1"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: standalone
+    networks:
+      - datanet
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: stack_metabase
+    restart: unless-stopped
+    ports:
+      - "8083:3000"
+    environment:
+      MB_DB_TYPE: h2
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - datanet
